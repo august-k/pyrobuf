@@ -80,9 +80,12 @@ cdef class {{ message.full_name }}:
             components.append('}')
         return '\n'.join(components)
 
+    cpdef void reset(self):
+        # reset values and populate defaults
     {% for field in message.fields.values() %}
-    cpdef _{{ field.name }}__reset(self):
-        {%- if field.type == 'message' or field.modifier == 'repeated' %}
+        {%- if field.type != 'message' and field.modifier != 'repeated' %}
+        self._{{ field.name }}_isSet = False
+        {%- else %}
         if self._{{ field.name }} is not None:
             self._{{ field.name }}._listener = noop_listener
         {%- endif -%}
@@ -171,7 +174,7 @@ cdef class {{ message.full_name }}:
             {%- endif %}
         {%- endfor %}
         {%- if field.type != 'message' and field.modifier != 'repeated' %}
-        self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+        self._{{ field.name }}_isSet = True
         {%- else %}
         if self._{{ field.name }} is not None:
             self._{{ field.name }}._listener = noop_listener
@@ -319,7 +322,7 @@ cdef class {{ message.full_name }}:
         {%- endif %}
 
         {%- if field.modifier != 'repeated' and field.type != 'message' and field.type != 'enum' %}
-                self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+                self._{{field.name}}_isSet = True
         {%- endif %}
 
         {%- if field.modifier == 'repeated' %}
@@ -430,7 +433,50 @@ cdef class {{ message.full_name }}:
         {%- else %}
         elif field_name == '{{ field.name }}':
         {%- endif %}
-            self._{{ field.name }}__reset()
+            {%- if field.type != 'message' and field.modifier != 'repeated' %}
+            self._{{ field.name }}_isSet = False
+            {%- elif field.type == 'message' %}
+            if self._{{ field.name }} is not None:
+                self._{{ field.name }}._listener = <PyObject *>null_listener
+            {%- else %}
+            self._{{ field.name }}._listener = <PyObject *>null_listener
+            {%- endif -%}
+            {%- if field.modifier == 'repeated' %}
+                {%- if field.type == 'message' %}
+            self._{{ field.name }} = TypedList.__new__(TypedList)
+            self._{{ field.name }}._list_type = {{ field.message_name }}
+            self._{{ field.name }}._listener = <PyObject *>self
+                {%- elif field.type == 'string' %}
+            self._{{ field.name }} = StringList.__new__(StringList)
+            self._{{ field.name }}._listener = <PyObject *>self
+                {%- elif field.type == 'bytes' %}
+            self._{{ field.name }} = BytesList.__new__(BytesList)
+            self._{{ field.name }}._listener = <PyObject *>self
+                {%- else %}
+            self._{{ field.name }} = {{ field.list_type }}.__new__({{ field.list_type }})
+            self._{{ field.name }}._listener = <PyObject *>self
+                {%- endif %}
+            {%- elif field.type == 'message' %}
+            self._{{ field.name }} = None
+            {%- elif field.default != None %}
+                {%- if field.type == 'string' %}
+            self._{{ field.name }} = {% if version_major == 2 %}u{% endif %}{{ field.default }}
+                {%- elif field.type == 'bytes' %}
+            self._{{ field.name }} = b{{ field.default }}
+                {%- elif field.type == 'enum' %}
+            self._{{ field.name }} = _{{ field.enum_default }}
+                {%- else %}
+            self._{{ field.name }} = {{ field.default }}
+                {%- endif %}
+            {%- elif field.type == 'string' %}
+            self._{{ field.name }} = {% if version_major == 2 %}u{% endif %}""
+            {%- elif field.type == 'bytes' %}
+            self._{{ field.name }} = b""
+            {%- elif field.type == 'enum' and field.enum_def != None %}
+            self._{{ field.name }} = _{{ field.enum_def.default.full_name }}
+            {%- else %}
+            self._{{ field.name }} = 0
+            {%- endif %}
     {%- endfor %}
     {%- if message.fields|count > 0 %}
         else:
@@ -463,7 +509,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
             return self._{{ field.name }} is not None and self._{{ field.name }}._is_present_in_parent
         {%- else %}
-            return self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}
+            return self._{{ field.name }}_isSet
         {%- endif %}
     {%- endfor %}
         raise ValueError('Protocol message has no singular "%s" field.' % field_name)
@@ -487,7 +533,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
         if self._{{ field.name }} is None or not self._{{ field.name }}.IsInitialized():
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
         {%- endif %}
             return False
     {%- endfor %}
@@ -543,9 +589,9 @@ cdef class {{ message.full_name }}:
                 self._{{ field.name }}._listener = self._Modified
             self._{{ field.name }}.MergeFrom(other_msg._{{ field.name }})
         {%- else %}
-        if other_msg.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if other_msg._{{ field.name }}_isSet:
             self._{{ field.name }} = other_msg._{{ field.name }}
-            self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+            self._{{ field.name }}_isSet = True
         {%- endif %}
     {%- endfor %}
 
@@ -650,11 +696,11 @@ cdef class {{ message.full_name }}:
 
         {%- elif field.type == 'string' %}
         cdef bytes {{ field.name }}_bytes
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
         {#- !messages and !repeated fields can all have default values #}
 
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
         {%- endif %}
 
         {%- if field.modifier != 'repeated' %}
@@ -774,7 +820,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
         if self._{{ field.name }} is None or not self._{{ field.name }}.IsInitialized():
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
         {%- endif %}
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
@@ -892,7 +938,7 @@ cdef class {{ message.full_name }}:
 
     {#- The recursive calls to ParseFromDict will check required fields of sub-messages including repeated messages #}
     {%- for field in message.fields.values()|rejectattr('type', 'equalto', 'message')|selectattr('modifier', 'equalto', 'required')|selectattr('default', 'none')|sort(attribute='index') %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
 
@@ -909,7 +955,7 @@ cdef class {{ message.full_name }}:
 
     {#- The recursive calls to SerializeToDict will check required fields of sub-messages including repeated messages #}
     {%- for field in message.fields.values()|rejectattr('type', 'equalto', 'message')|selectattr('modifier', 'equalto', 'required')|selectattr('default', 'none')|sort(attribute='index') %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
 
@@ -925,10 +971,10 @@ cdef class {{ message.full_name }}:
         if {{ field.name }}_dict != {}:
             out["{{ field.name }}"] = {{ field.name }}_dict
         {%- elif field.type == 'bytes' %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = base64.b64encode(self.{{ field.name }}).decode('utf-8')
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = self.{{ field.name }}
         {%- endif %}
     {%- endfor %}
@@ -956,10 +1002,10 @@ cdef class {{ message.full_name }}:
         if {{ field.name }}_dict != {}:
             out["{{ field.name }}"] = {{ field.name }}_dict
         {%- elif field.type == 'bytes' %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = base64.b64encode(self.{{ field.name }}).decode('utf-8')
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = self.{{ field.name }}
         {%- endif %}
     {%- endfor %}
