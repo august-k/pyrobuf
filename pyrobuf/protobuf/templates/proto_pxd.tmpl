@@ -33,7 +33,6 @@ cdef class {{ message.full_name }}:
     cdef {{ field.c_type }} _{{ field.name }}
     {%- endif %}
     cpdef _{{ field.name }}__reset(self)
-{%- endfor %}
 
     {%- if field.modifier != 'repeated' and field.type != 'message' %}
     cdef bint _{{ field.name}}_isSet

@@ -122,9 +122,6 @@ cdef class {{ message.full_name }}:
         {%- else %}
         self._{{ field.name }} = 0
         {%- endif %}
-        {%- if field.type != 'message' and field.modifier != 'repeated' %}
-        self.__field_bitmap{{ field.bitmap_idx }} &= ~{{ field.bitmap_mask }}
-        {%- endif -%}
     {% endfor %}
 
     cpdef void reset(self):
