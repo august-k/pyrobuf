@@ -169,7 +169,7 @@ cdef class {{ message.full_name }}:
             {%- endif %}
         {%- endfor %}
         {%- if field.type != 'message' and field.modifier != 'repeated' %}
-        self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+        self._{{ field.name }}_isSet = True
         {%- else %}
         if self._{{ field.name }} is not None:
             self._{{ field.name }}._listener = noop_listener
@@ -317,7 +317,7 @@ cdef class {{ message.full_name }}:
         {%- endif %}
 
         {%- if field.modifier != 'repeated' and field.type != 'message' and field.type != 'enum' %}
-                self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+                self._{{field.name}}_isSet = True
         {%- endif %}
 
         {%- if field.modifier == 'repeated' %}
@@ -461,7 +461,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
             return self._{{ field.name }} is not None and self._{{ field.name }}._is_present_in_parent
         {%- else %}
-            return self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}
+            return self._{{ field.name }}_isSet
         {%- endif %}
     {%- endfor %}
         raise ValueError('Protocol message has no singular "%s" field.' % field_name)
@@ -485,7 +485,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
         if self._{{ field.name }} is None or not self._{{ field.name }}.IsInitialized():
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
         {%- endif %}
             return False
     {%- endfor %}
@@ -541,9 +541,9 @@ cdef class {{ message.full_name }}:
                 self._{{ field.name }}._listener = self._Modified
             self._{{ field.name }}.MergeFrom(other_msg._{{ field.name }})
         {%- else %}
-        if other_msg.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if other_msg._{{ field.name }}_isSet:
             self._{{ field.name }} = other_msg._{{ field.name }}
-            self.__field_bitmap{{ field.bitmap_idx }} |= {{ field.bitmap_mask }}
+            self._{{ field.name }}_isSet = True
         {%- endif %}
     {%- endfor %}
 
@@ -648,11 +648,11 @@ cdef class {{ message.full_name }}:
 
         {%- elif field.type == 'string' %}
         cdef bytes {{ field.name }}_bytes
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
         {#- !messages and !repeated fields can all have default values #}
 
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
         {%- endif %}
 
         {%- if field.modifier != 'repeated' %}
@@ -772,7 +772,7 @@ cdef class {{ message.full_name }}:
         {%- if field.type == 'message' %}
         if self._{{ field.name }} is None or not self._{{ field.name }}.IsInitialized():
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
         {%- endif %}
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
@@ -890,7 +890,7 @@ cdef class {{ message.full_name }}:
 
     {#- The recursive calls to ParseFromDict will check required fields of sub-messages including repeated messages #}
     {%- for field in message.fields.values()|rejectattr('type', 'equalto', 'message')|selectattr('modifier', 'equalto', 'required')|selectattr('default', 'none')|sort(attribute='index') %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
 
@@ -907,7 +907,7 @@ cdef class {{ message.full_name }}:
 
     {#- The recursive calls to SerializeToDict will check required fields of sub-messages including repeated messages #}
     {%- for field in message.fields.values()|rejectattr('type', 'equalto', 'message')|selectattr('modifier', 'equalto', 'required')|selectattr('default', 'none')|sort(attribute='index') %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} != {{ field.bitmap_mask }}:
+        if not self._{{ field.name }}_isSet:
             raise Exception("required field '{{ field.name }}' not initialized and does not have default")
     {%- endfor %}
 
@@ -923,10 +923,10 @@ cdef class {{ message.full_name }}:
         if {{ field.name }}_dict != {}:
             out["{{ field.name }}"] = {{ field.name }}_dict
         {%- elif field.type == 'bytes' %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = base64.b64encode(self.{{ field.name }}).decode('utf-8')
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = self.{{ field.name }}
         {%- endif %}
     {%- endfor %}
@@ -954,10 +954,10 @@ cdef class {{ message.full_name }}:
         if {{ field.name }}_dict != {}:
             out["{{ field.name }}"] = {{ field.name }}_dict
         {%- elif field.type == 'bytes' %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = base64.b64encode(self.{{ field.name }}).decode('utf-8')
         {%- else %}
-        if self.__field_bitmap{{ field.bitmap_idx }} & {{ field.bitmap_mask }} == {{ field.bitmap_mask }}:
+        if self._{{ field.name }}_isSet:
             out["{{ field.name }}"] = self.{{ field.name }}
         {%- endif %}
     {%- endfor %}
